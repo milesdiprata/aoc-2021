@@ -12,6 +12,7 @@ cargo_common_metadata = "allow"
 
 [dependencies]
 anyhow = "1.0.101"
+strum = { version = "0.28.0", features = ["derive"] }
 
 [profile.release]
 opt-level = 3
@@ -20,3 +21,7 @@ lto = true
 [[bin]]
 name = "day1"
 path = "src/day1.rs"
+
+[[bin]]
+name = "day2"
+path = "src/day2.rs"
