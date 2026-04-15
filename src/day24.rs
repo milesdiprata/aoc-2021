@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::str::FromStr;
 use std::time::Instant;
@@ -38,12 +39,16 @@ enum Instr {
 }
 
 #[derive(Debug)]
+struct Program {
+    blocks: Vec<Vec<Instr>>,
+}
+
+#[derive(Debug, Default)]
 struct Alu {
     w: i64,
     x: i64,
     y: i64,
     z: i64,
-    input: i64,
 }
 
 impl FromStr for Var {
@@ -97,17 +102,29 @@ impl FromStr for Instr {
     }
 }
 
-impl Alu {
-    const fn new() -> Self {
-        Self {
-            w: 0,
-            x: 0,
-            y: 0,
-            z: 0,
-            input: 0,
-        }
-    }
+impl FromStr for Program {
+    type Err = Error;
 
+    fn from_str(instrs: &str) -> Result<Self> {
+        let mut blocks = Vec::new();
+
+        for instr in instrs.lines().map(Instr::from_str) {
+            let instr = instr?;
+            if matches!(instr, Instr::Inp(_)) {
+                blocks.push(Vec::new());
+            }
+
+            blocks
+                .last_mut()
+                .ok_or_else(|| anyhow!("expected leading 'inp ...' instruction in program"))?
+                .push(instr);
+        }
+
+        Ok(Self { blocks })
+    }
+}
+
+impl Alu {
     const fn reg(&self, reg: Reg) -> i64 {
         match reg {
             Reg::W => self.w,
@@ -133,30 +150,10 @@ impl Alu {
         }
     }
 
-    const fn is_model_no_valid(&self) -> bool {
-        let mut no = self.input.abs();
-
-        if no == 0 {
-            return true;
-        }
-
-        while no > 0 {
-            if no % 10 == 0 {
-                return true;
-            }
-
-            no /= 10;
-        }
-
-        false
-    }
-
-    fn run(&mut self, program: &[Instr], input: &[i64]) -> i64 {
-        let mut input = input.iter().copied();
-
-        for &instr in program {
+    fn run(&mut self, block: &[Instr], input: i64) -> i64 {
+        for &instr in block {
             match instr {
-                Instr::Inp(a) => *self.reg_mut(a) = input.next().unwrap(),
+                Instr::Inp(a) => *self.reg_mut(a) = input,
                 Instr::Add((a, b)) => *self.reg_mut(a) = self.reg(a) + self.var(b),
                 Instr::Mul((a, b)) => *self.reg_mut(a) = self.reg(a) * self.var(b),
                 Instr::Div((a, b)) => *self.reg_mut(a) = self.reg(a) / self.var(b),
@@ -169,38 +166,71 @@ impl Alu {
     }
 }
 
-fn part1(program: &[Instr]) -> i64 {
-    todo!()
-}
+impl Program {
+    fn find_monad_max(&self) -> u64 {
+        const DIGITS: [i64; 9] = [9, 8, 7, 6, 5, 4, 3, 2, 1];
+        self.find(DIGITS, 0, 0, &mut HashMap::new())
+            .unwrap_or_else(|| unreachable!("no valid MONAD number found"))
+    }
 
-fn part2() -> u64 {
-    todo!()
+    fn find_monad_min(&self) -> u64 {
+        const DIGITS: [i64; 9] = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+        self.find(DIGITS, 0, 0, &mut HashMap::new())
+            .unwrap_or_else(|| unreachable!("no valid MONAD number found"))
+    }
+
+    fn find(
+        &self,
+        digits: [i64; 9],
+        idx: usize,
+        z: i64,
+        cache: &mut HashMap<(usize, i64), Option<u64>>,
+    ) -> Option<u64> {
+        if idx == self.blocks.len() {
+            return (z == 0).then_some(0);
+        }
+
+        if let Some(&cached) = cache.get(&(idx, z)) {
+            return cached;
+        }
+
+        let result = digits.iter().find_map(|&digit| {
+            let z_next = Alu {
+                z,
+                ..Default::default()
+            }
+            .run(&self.blocks[idx], digit);
+
+            let sub = self.find(digits, idx + 1, z_next, cache)?;
+
+            #[allow(clippy::cast_possible_truncation)]
+            Some(sub + (digit.cast_unsigned() * 10_u64.pow((self.blocks.len() - idx - 1) as u32)))
+        });
+
+        cache.insert((idx, z), result);
+        result
+    }
 }
 
 fn main() -> Result<()> {
-    let program = fs::read_to_string("in/day24.txt")?
-        .lines()
-        .map(Instr::from_str)
-        .collect::<Result<Vec<_>>>()?;
-
-    // dbg!(&program);
+    let program = Program::from_str(&fs::read_to_string("in/day24.txt")?)?;
 
     {
         let start = Instant::now();
-        let part1 = self::part1(&program);
+        let part1 = program.find_monad_max();
         let elapsed = start.elapsed();
 
         println!("Part 1: {part1} ({elapsed:?})");
-        assert_eq!(part1, 0);
+        assert_eq!(part1, 94_992_994_195_998);
     };
 
     {
         let start = Instant::now();
-        let part2 = self::part2();
+        let part2 = program.find_monad_min();
         let elapsed = start.elapsed();
 
         println!("Part 2: {part2} ({elapsed:?})");
-        assert_eq!(part2, 0);
+        assert_eq!(part2, 21_191_861_151_161);
     };
 
     Ok(())
